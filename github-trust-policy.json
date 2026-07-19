@@ -12,7 +12,7 @@
                     "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
                 },
                 "StringLike": {
-                    "token.actions.githubusercontent.com:sub": "repo:nkdharanikumar/cloud-deployment-compliance-system:*"
+                    "token.actions.githubusercontent.com:sub": "repo:*dharanikumar/cloud-deployment-compliance-system:*"
                 }
             }
         }
