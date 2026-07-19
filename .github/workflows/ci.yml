@@ -1,0 +1,86 @@
+name: Build and Push Docker Image
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REPOSITORY: compliance-system
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::324621154851:role/GitHubActionsComplianceRole
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build Docker Image
+        run: |
+          docker build \
+          -t ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.run_number }} \
+          -t ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest \
+          .
+
+      - name: Run Trivy Scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.run_number }}
+          format: table
+          exit-code: 0
+
+      - name: Push Docker Images
+        run: |
+          docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.run_number }}
+          docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+
+      - name: Get Image Digest
+        id: digest
+        run: |
+          DIGEST=$(aws ecr describe-images \
+            --repository-name $ECR_REPOSITORY \
+            --image-ids imageTag=${{ github.run_number }} \
+            --query 'imageDetails[0].imageDigest' \
+            --output text)
+
+          echo "digest=$DIGEST" >> $GITHUB_OUTPUT
+
+      - name: Generate Build Metadata
+        run: |
+          cat <<EOF > build-metadata.json
+          {
+            "repository":"${{ github.repository }}",
+            "branch":"${{ github.ref_name }}",
+            "commit":"${{ github.sha }}",
+            "run_number":"${{ github.run_number }}",
+            "actor":"${{ github.actor }}",
+            "image":"${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}",
+            "tag":"${{ github.run_number }}",
+            "digest":"${{ steps.digest.outputs.digest }}",
+            "timestamp":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+
+      - name: Upload Build Metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-metadata
+          path: build-metadata.json
